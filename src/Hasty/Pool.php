@@ -1,11 +1,11 @@
 <?php
 
-namespace Composer\Util;
+namespace Hasty;
 
 /**
  * Implements a PHP Streams based pool for performing HTTP requests in parallel
  */
-class HttpRequestPool
+class Pool
 {
 
 	const GET = 'GET';
