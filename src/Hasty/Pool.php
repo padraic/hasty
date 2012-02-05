@@ -100,73 +100,31 @@ class Pool
         }
     }
 
-    public function addRequest($url, array $requestOptions = null)
-    {
-        if (!filter_var($url, FILTER_VALIDATE_URL)) {
-            throw new \InvalidArgumentException(
-                'Unable to add a new request due to an invalid URL: '.$url
-            );
+    public function add($request, array $requestOptions = null)
+    {   
+        if(!$request instanceof Request) {
+            $request = new Request($request, $requestOptions);
         }
-        if (!is_null($requestOptions)) {
-            $requestOptions = $this->processOptions($requestOptions);
-            $options = array_merge($this->options, $requestOptions);
-        } else {
-            $options = $this->options;
-        }
-        $parts = parse_url($url);
-        $port = null;
-        $socket = null;
-        $host = $parts['host'];
-        $path = null;
         $pointer = null;
         $errorCode = null;
         $errorString = null;
-        $request = null;
-        switch ($parts['scheme']) {
-            case 'http':
-                if (isset($parts['port'])) {
-                    $port = $parts['port'];
-                    $host = $host.':'.$port;
-                } else {
-                    $port = '80';
-                }
-                $socket = 'tcp://'.$host.':'.$port;
-                $options['headers']['Host'] = $host;
-                break;
-            case 'https':
-                if (isset($parts['port'])) {
-                    $port = $parts['port'];
-                    $host = $host.':'.$port;
-                } else {
-                    $port = '443';
-                }
-                $socket = 'ssl://'.$host.':'.$port;
-                $options['headers']['Host'] = $host;
-                break;
-            default:
-                throw new \InvalidArgumentException(
-                    'Unable to add a new request to an unsupported URL schema in: '.$url
-                );
-                break;
-        }
-        $options['headers']['Connection'] = 'close';
         set_error_handler(function($severity, $message, $file, $line) {
             throw new \ErrorException($message, $severity, $severity, $file, $line);
         });
-        if (is_null($options['context'])) {
+        if (is_null($request->get('context'))) { // needed dup?
             $pointer = stream_socket_client(
-                $socket,
+                $request->get('socket'),
                 $errorCode,
                 $errorString,
-                $options['timeout'],
+                $request->get('timeout'),
                 STREAM_CLIENT_ASYNC_CONNECT|STREAM_CLIENT_CONNECT
             );
         } else {
             $pointer = stream_socket_client(
-                $socket,
+                $request->get('socket'),
                 $errorCode,
                 $errorString,
-                $options['timeout'],
+                $request->get('timeout'),
                 STREAM_CLIENT_ASYNC_CONNECT|STREAM_CLIENT_CONNECT,
                 $options['context']
             );
@@ -178,23 +136,8 @@ class Pool
             );
         }
         stream_set_blocking($pointer, 0);
-        if (isset($parts['path'])) {
-            $path = $parts['path'];
-        } else {
-            $path = '/';
-        }
-        $request = $options['method']
-            . " "
-            . $path
-            . " HTTP/1.0\r\n"; // for now...
-        foreach ($options['headers'] as $name => $value) {
-            $request .= trim($name)
-                . ": "
-                . trim($value)
-                . "\r\n";
-        }
-        $request .= "\r\n";
-        $this->stashRequest($url, $pointer, $request, $options);
+        $this->stashRequest($request, $pointer);
+        return $this;
     }
 
     public function execute()
@@ -233,6 +176,7 @@ class Pool
         }
         restore_error_handler();
         $this->decodeResponsesData();
+        return $this->responses;
     }
 
     public function reset()
@@ -419,7 +363,7 @@ class Pool
             if (!empty($parts['port'])) {
                 $location .= ':'.$parts['port'];
             }
-            if ('/' !=== $parts['path'][0]) {
+            if ('/' !== $parts['path'][0]) {
                 $parts['path'] = '/'.$parts['path'];
             }
             if (isset($parts['query'])) {
@@ -448,13 +392,13 @@ class Pool
         $this->addRequest($location, $this->responses[$id]['options']);
     }
 
-    protected function stashRequest($url, $pointer, $request, array $options)
+    protected function stashRequest(Request $request, $pointer)
     {
         $this->streams[$this->streamCounter] = $pointer;
         $this->responses[$this->streamCounter] = array(
-            'url' => $url,
-            'options' => $options,
-            'request' => $request,
+            'url' => $request->get('url'),
+            'options' => $request->getOptions(),
+            'request' => $request->get('raw_request'),
             'status' => self::STATUS_PROGRESSING,
             'headers' => array(),
             'data' => '',
