@@ -3,7 +3,21 @@
 namespace Hasty;
 
 /**
- * Implements a PHP Streams based pool for performing HTTP requests in parallel
+ * TODO
+ *
+ * - Improve error handling
+ * - Support PUT/DELETE
+ * - Support Cookies
+ * - Support chunked transfer-encoding
+ * - Support non-HTTP/HTTPS schemas
+ * - Add HTTP 1.1 support
+ * - Add support for keep-alive in HTTP 1.1
+ * - Implement Request/Response proper objects
+ * - Check RFC 3986 compliance
+ * - Added request data and encoding support (query strings and post data)
+ * - Support restrictions on parallel request count both globally and by host
+ * - Support for discarding responses, i.e. discard streams after writing?
+ * - Refactor, refactor, refactor...
  */
 class Pool
 {
@@ -213,10 +227,12 @@ class Pool
             } else {
                 break;
             }
+            if (!empty($this->streams)) {
+                usleep(30000);
+            }
         }
-        // handle redirects! Watch the redirect count...
         restore_error_handler();
-        return $this->responses; // or just return a simpler array of contents and urls?
+        $this->decodeResponsesData();
     }
 
     public function reset()
@@ -286,54 +302,11 @@ class Pool
             case 301:
             case 302:
             case 307:
-                if (!filter_var($this->responses[$id]['headers']['location'], FILTER_VALIDATE_URL)) {
-                    $location = '';
-                    $parts = @parse_url($this->responses[$id]['headers']['location']);
-                    $base = @parse_url($this->responses[$id]['request']);
-                    if (empty($parts['scheme'])) {
-                        $parts['scheme'] = $base['scheme'];
-                    }
-                    if (empty($parts['host']) && !empty($base['host'])) {
-                        $parts['host'] = $base['host'];
-                    } else {
-                        $parts['host'] = $_SERVER['HTTP_HOST'];
-                    }
-                    if (empty($parts['port']) && !empty($base['port'])) {
-                        $parts['port'] = $base['port'];
-                    }
-                    if (isset($parts['scheme'])) {
-                        $location .= $parts['scheme'].'://';
-                    }
-                    if (isset($parts['host'])) {
-                        $location .= $parts['host'];
-                    }
-                    if (!empty($parts['port'])) {
-                        $location .= ':'.$parts['port'];
-                    }
-                    if ('/' !=== $parts['path'][0]) {
-                        $parts['path'] = '/'.$parts['path'];
-                    }
-                    if (isset($parts['query'])) {
-                        $location .= '?'.$parts['query'];
-                    }
-                    if (isset($parts['fragment'])) {
-                        $location .= '#'.$parts['fragment'];
-                    }
-                    if (!filter_var($location, FILTER_VALIDATE_URL)) {
-                        throw new \RuntimeException('Unable to construct a valid redirect URI'
-                        .' from the details received from'.$this->responses[$id]['request']);
-                    }
-                } else {
-                    $location = $this->responses[$id]['headers']['location'];
-                }
-                if ($this->responses[$id]['options']['max_redirects'] <= 0) {
-                    // no more redirects!
-                } else {
-                    // redirect
-                }
+                $this->handleRedirectFor($id, $code);
                 break;
             default:
-                $this->responses[$id]->error = true;
+                $this->responses[$id]['error'] = true;
+                $this->responses[$id]['message'] = $this->responses[$id]['status'];
         }
     }
 
@@ -350,9 +323,12 @@ class Pool
         )) {
             $this->parseHeaders($id);
             if (count($this->responses[$id]['headers']) > 0) {
-                // check for redirect
-
-                // check for error
+                if (!empty($this->responses[$id]['redirect_uri'])) {
+                    $this->responses[$id]['status'] = self::STATUS_COMPLETED;
+                    fclose($read);
+                    unset($this->streams[$id]);
+                    return;
+                }
             }
             $this->responses[$id]['options']['chunk_size'] = 32768;
         }
@@ -401,9 +377,75 @@ class Pool
 
     }
 
-    protected function decodeResponseDataFor($id)
+    protected function decodeResponsesData()
     {
-        // gzip, chunked, deflate decoding
+        foreach ($this->responses as $id => $response) {
+            if (isset($response['headers']['transfer-encoding'])
+            && $response['headers']['transfer-encoding'] = 'chunked') {
+                # TODO
+            } elseif (isset($response['headers']['content-encoding'])
+            && $response['headers']['transfer-encoding'] = 'gzip') {
+                $this->responses[$id]['data'] = gzinflate(substr($reponse['data'], 10));
+            } elseif (isset($response['headers']['transfer-encoding'])
+            && $response['headers']['transfer-encoding'] = 'deflate') {
+                $this->responses[$id]['data'] = gzinflate($reponse['data']);
+            }
+        }
+    }
+
+    protected function handleRedirectFor($id, $code)
+    {
+        if (!filter_var($this->responses[$id]['headers']['location'], FILTER_VALIDATE_URL)) {
+            $location = '';
+            $parts = @parse_url($this->responses[$id]['headers']['location']);
+            $base = @parse_url($this->responses[$id]['request']);
+            if (empty($parts['scheme'])) {
+                $parts['scheme'] = $base['scheme'];
+            }
+            if (empty($parts['host']) && !empty($base['host'])) {
+                $parts['host'] = $base['host'];
+            } else {
+                $parts['host'] = $_SERVER['HTTP_HOST'];
+            }
+            if (empty($parts['port']) && !empty($base['port'])) {
+                $parts['port'] = $base['port'];
+            }
+            if (isset($parts['scheme'])) {
+                $location .= $parts['scheme'].'://';
+            }
+            if (isset($parts['host'])) {
+                $location .= $parts['host'];
+            }
+            if (!empty($parts['port'])) {
+                $location .= ':'.$parts['port'];
+            }
+            if ('/' !=== $parts['path'][0]) {
+                $parts['path'] = '/'.$parts['path'];
+            }
+            if (isset($parts['query'])) {
+                $location .= '?'.$parts['query'];
+            }
+            if (isset($parts['fragment'])) {
+                $location .= '#'.$parts['fragment'];
+            }
+            if (!filter_var($location, FILTER_VALIDATE_URL)) {
+                throw new \RuntimeException('Unable to construct a valid redirect URI'
+                .' from the details received from'.$this->responses[$id]['request']);
+            }
+        } else {
+            $location = $this->responses[$id]['headers']['location'];
+        }
+        if ($this->responses[$id]['options']['max_redirects'] <= 0) {
+            $this->responses[$id]['error'] = true;
+            $this->responses[$id]['message'] = 'Maximum redirects have been exhausted';
+        } else {
+            $this->responses[$id]['max_redirects']--;
+            $this->responses[$id]['headers']['Referer'] = $this->responses[$id]['url'];
+            unset($this->responses[$id]['headers']['Host']);
+            $this->responses[$id]['redirect_code'] = $code;
+        }
+        $this->responses[$id]['redirect_uri'] = $location;
+        $this->addRequest($location, $this->responses[$id]['options']);
     }
 
     protected function stashRequest($url, $pointer, $request, array $options)
