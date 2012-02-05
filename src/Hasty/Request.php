@@ -92,8 +92,8 @@ class Request
                 );
                 break;
         }
-        $this->set('headers', array('Host' => $host));
-        $this->set('headers', array('Connection' => 'close'));
+        $this->set('headers', array('Host' => $host)); // this doesn't work obviously :P
+        $this->set('headers', array('Connection' => 'close')); 
         if (isset($parts['path'])) {
             $path = $parts['path'];
         } else {
