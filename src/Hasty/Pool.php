@@ -103,6 +103,7 @@ class Pool
     public function add($request, array $requestOptions = null)
     {   
         if(!$request instanceof Request) {
+            $requestOptions = array_merge($this->options, (array) $requestOptions);
             $request = new Request($request, $requestOptions);
         }
         $pointer = null;
@@ -175,7 +176,7 @@ class Pool
             }
         }
         restore_error_handler();
-        $this->decodeResponsesData();
+        $this->decodeResponsesData(); // move to Response
         return $this->responses;
     }
 
@@ -218,27 +219,28 @@ class Pool
 
     protected function parseHeaders($id)
     {
-        if (count($this->responses[$id]['headers']) > 0) {
+        $response = $this->responses[$id];
+        if (count($response->get('headers')) > 0) {
             return;
         }
-        $split = preg_split("/\r\n\r\n|\n\n|\r\r/", $this->responses[$id]['data'], 2);
+        $split = preg_split("/\r\n\r\n|\n\n|\r\r/", $response->get('data'), 2);
         $headers = preg_split("/\r\n|\n|\r/", $split[0]);
-        $content = $this->responses[$id]['data'] = $split[1];
+        $response->set('data', $content = $split[1]);
         $protocol = explode(' ', trim(array_shift($headers)), 3);
-        $this->responses[$id]['protocol'] = $protocol[0];
+        $response->set('protocol', $protocol[0]);
         $code = $protocol[1];
         if (isset($protocol[2])) {
-            $this->responses[$id]['message'] = $protocol[2];
+            $response->set('message', $protocol[2]);
         }
         while ($header = trim(array_shift($headers))) {
             $parts = explode(':', $header, 2);
             $name = strtolower($parts[0]);
-            $this->responses[$id]['headers'][$name] = trim($parts[1]);
+            $response->set('headers', array($name => trim($parts[1])));
         }
         if (!isset($this->responseCodes[$code])) {
             $code = floor($code / 100) * 100;
         }
-        $this->responses[$id]['code'] = $code;
+        $response->set('code', $code);
         switch ($code) {
             case 200:
             case 304:
@@ -249,64 +251,70 @@ class Pool
                 $this->handleRedirectFor($id, $code);
                 break;
             default:
-                $this->responses[$id]['error'] = true;
-                $this->responses[$id]['message'] = $this->responses[$id]['status'];
+                $response->set('error', true);
+                $response->set('message', $response->get('status'));
         }
     }
 
     protected function performRead($read)
     {
         $id = array_search($read, $this->streams);
-        $content = fread($read, $this->responses[$id]['options']['chunk_size']);
-        $this->responses[$id]['data'] .= $content;
+        $response = $this->responses[$id];
+        $options = $response->get('options');
+        $content = fread($read, $options['chunk_size']);
+        $response->set('data', $response->get('data').$content);
         $meta = stream_get_meta_data($read);
-        if (empty($this->responses[$id]['headers']) && (
-            strpos($this->responses[$id]['data'], "\r\r")
-            || strpos($this->responses[$id]['data'], "\r\n\r\n")
-            || strpos($this->responses[$id]['data'], "\n\n")
+        $headers = $response->get('headers');
+        $data = $response->get('data');
+        if (empty($headers) && (
+            strpos($data, "\r\r")
+            || strpos($data, "\r\n\r\n")
+            || strpos($data, "\n\n")
         )) {
             $this->parseHeaders($id);
-            if (count($this->responses[$id]['headers']) > 0) {
-                if (!empty($this->responses[$id]['redirect_uri'])) {
-                    $this->responses[$id]['status'] = self::STATUS_COMPLETED;
+            if (count($response->get('headers')) > 0) {
+                $redirectUri = $response->get('redirect_uri');
+                if (!empty($redirectUri)) {
+                    $response->set('status', self::STATUS_COMPLETED);
                     fclose($read);
                     unset($this->streams[$id]);
                     return;
                 }
             }
-            $this->responses[$id]['options']['chunk_size'] = 32768;
+            $response->set('options', array('chunk_size'=>32768));
         }
         $active = !feof($read)
             && !$meta['eof']
             && !$meta['timed_out']
             && strlen($content);
         if (!$active) {
-            if ($this->responses[$id]['status'] == self::STATUS_PROGRESSING) {
-                $this->responses[$id]['status'] = self::STATUS_CONNECTIONFAILED;
+            if ($response->get('status') == self::STATUS_PROGRESSING) {
+                $response->set('status', self::STATUS_CONNECTIONFAILED);
             } else {
-                $this->responses[$id]['status'] = self::STATUS_COMPLETED;
+                $response->set('status', self::STATUS_COMPLETED);
             }
             fclose($read);
             unset($this->streams[$id]);
         } else {
-            $this->responses[$id]['status'] = self::STATUS_READING;
+            $response->set('status', self::STATUS_READING);
         }
     }
 
     protected function performWrite($write)
     {
         $id = array_search($write, $this->streams);
+        $response = $this->responses[$id];
         if (isset($this->streams[$id])
-        && $this->responses[$id]['status'] == self::STATUS_PROGRESSING) {
-            $size = strlen($this->responses[$id]['request']);
-            $written = fwrite($write, $this->responses[$id]['request'], $size);
+        && $response->get('status') == self::STATUS_PROGRESSING) {
+            $size = strlen($response->get('raw_request'));
+            $written = fwrite($write, $response->get('raw_request'), $size);
             if ($written >= $size) {
-                $this->responses[$id]['status'] = self::STATUS_WAITINGFORRESPONSE;
+                $response->set('status', self::STATUS_WAITINGFORRESPONSE);
             } else {
-                $this->responses[$id]['request'] = substr(
-                    $this->responses[$id]['request'],
+                $response->set('raw_request', substr(
+                    $response->get('raw_request'),
                     $written
-                );
+                ));
             }
         }
     }
@@ -324,25 +332,29 @@ class Pool
     protected function decodeResponsesData()
     {
         foreach ($this->responses as $id => $response) {
-            if (isset($response['headers']['transfer-encoding'])
-            && $response['headers']['transfer-encoding'] = 'chunked') {
+            $headers = $response->get('headers');
+            if (isset($headers['transfer-encoding'])
+            && $headers['transfer-encoding'] = 'chunked') {
                 # TODO
-            } elseif (isset($response['headers']['content-encoding'])
-            && $response['headers']['transfer-encoding'] = 'gzip') {
-                $this->responses[$id]['data'] = gzinflate(substr($reponse['data'], 10));
-            } elseif (isset($response['headers']['transfer-encoding'])
-            && $response['headers']['transfer-encoding'] = 'deflate') {
-                $this->responses[$id]['data'] = gzinflate($reponse['data']);
+            } elseif (isset($headers['content-encoding'])
+            && $headers['transfer-encoding'] = 'gzip') {
+                $response->set('data', gzinflate(substr($reponse->get('data')), 10));
+            } elseif (isset($headers['transfer-encoding'])
+            && $headers['transfer-encoding'] = 'deflate') {
+                $response->set('data', gzinflate($reponse->get('data')));
             }
         }
     }
 
     protected function handleRedirectFor($id, $code)
     {
-        if (!filter_var($this->responses[$id]['headers']['location'], FILTER_VALIDATE_URL)) {
+        $response = $this->responses[$id];
+        $headers = $response->get('headers');
+        $options = $response->get('options');
+        if (!filter_var($headers['location'], FILTER_VALIDATE_URL)) {
             $location = '';
-            $parts = @parse_url($this->responses[$id]['headers']['location']);
-            $base = @parse_url($this->responses[$id]['request']);
+            $parts = @parse_url($headers['location']);
+            $base = @parse_url($response->get('request'));
             if (empty($parts['scheme'])) {
                 $parts['scheme'] = $base['scheme'];
             }
@@ -374,31 +386,32 @@ class Pool
             }
             if (!filter_var($location, FILTER_VALIDATE_URL)) {
                 throw new \RuntimeException('Unable to construct a valid redirect URI'
-                .' from the details received from'.$this->responses[$id]['request']);
+                .' from the details received from'.$response->get('request'));
             }
         } else {
-            $location = $this->responses[$id]['headers']['location'];
+            $location = $headers['location'];
         }
-        if ($this->responses[$id]['options']['max_redirects'] <= 0) {
-            $this->responses[$id]['error'] = true;
-            $this->responses[$id]['message'] = 'Maximum redirects have been exhausted';
+        if ($options['max_redirects'] <= 0) {
+            $response->set('error', true);
+            $response->set('message', 'Maximum redirects have been exhausted');
         } else {
-            $this->responses[$id]['max_redirects']--;
-            $this->responses[$id]['headers']['Referer'] = $this->responses[$id]['url'];
-            unset($this->responses[$id]['headers']['Host']);
-            $this->responses[$id]['redirect_code'] = $code;
+            $response->set('max_redirects', $responses->get('max_redirects')-1); //move to local status store
+            $response->set('headers', array('Referer' => $response->get('url')));
+            $response->set('headers', array('Host' => null)); //unset on null
+            $response->set('redirect_code', $code);
         }
-        $this->responses[$id]['redirect_uri'] = $location;
-        $this->addRequest($location, $this->responses[$id]['options']);
+        $response->set('redirect_uri', $location);
+        $this->add($location, $response->get('options'));
     }
 
     protected function stashRequest(Request $request, $pointer)
     {
         $this->streams[$this->streamCounter] = $pointer;
-        $this->responses[$this->streamCounter] = array(
-            'url' => $request->get('url'),
+        $this->responses[$this->streamCounter] = new Response(
+            array('url' => $request->get('url'),
             'options' => $request->getOptions(),
-            'request' => $request->get('raw_request'),
+            'request' => $request,
+            'raw_request' => $request->get('raw_request'),
             'status' => self::STATUS_PROGRESSING,
             'headers' => array(),
             'data' => '',
@@ -408,7 +421,7 @@ class Pool
             'protocol' => null,
             'code' => null,
             'message' => null,
-            'error' => false
+            'error' => false)
         );
         $this->streamCounter++;
     }

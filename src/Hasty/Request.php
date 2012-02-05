@@ -44,8 +44,7 @@ class Request
 
     public function set($key, $value)
     {
-        if (!isset($this->options[$key])) {
-            var_dump($this->options, $key, $value); exit;
+        if (!array_key_exists($key, $this->options)) {
             throw new \InvalidArgumentException (
                 'Option does not exist: '.$key
             );
@@ -126,11 +125,12 @@ class Request
             switch ($key) {
                 case 'timeout':
                     $value = (float) $value;
-                    $value = max($value, $this->options($key));
+                    $value = max($value, $this->options[$key]);
                     $options[$key] = (float) $value;
                     break;
                 case 'context':
-                    if (!is_resource($value) || get_resource_type($value) !== 'stream-context') {
+                    if (!is_null($value) && (!is_resource($value)
+                    || get_resource_type($value) !== 'stream-context')) {
                         throw new \InvalidArgumentException(
                             'Value of \'context\' provided to Hasty\\Request must be a valid '
                             . 'stream-context resource created via the stream_context_create() function'
@@ -156,7 +156,7 @@ class Request
                     }
                     break;
                 case 'method':
-                    if (!in_array($value, array(self::GET, self::POST, self::HEAD))) {
+                    if (!in_array($value, array(Pool::GET, Pool::POST, Pool::HEAD))) {
                         throw new \InvalidArgumentException(
                             'Value of \'method\' provided to Hasty\\Request must be one of '
                             . 'GET, POST or HEAD'
