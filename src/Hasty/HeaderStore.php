@@ -2,7 +2,7 @@
 
 namespace Hasty;
 
-class HeaderStore implements Countable
+class HeaderStore implements \Countable
 {
 
     protected $headers = array();
@@ -68,17 +68,28 @@ class HeaderStore implements Countable
         return $this->headers;
     }
 
+    public function populate(array $headers)
+    {
+        foreach ($headers as $name => $value) {
+            $this->set($name, $value);
+        }
+    }
+
     public function toString()
     {
-        if (count($headers) == 0) {
+        if (count($this->headers) == 0) {
             return '';
         }
-        ksort($this->headers);
         $string = '';
-        foreach ($headers as $name => $value) {
-            $parts = explode($name, '-');
-            $parts = array_map('ucfirst', $parts);
-            $string .= implode('-', $parts) . ': ' . $value . "\r\n";
+        foreach ($this->headers as $name => $value) {
+            if (strpos($name, '_')) {
+                $parts = explode('_', $name);
+                $parts = array_map('ucfirst', $parts);
+                $name = implode('-', $parts);
+            } else {
+                $name = ucfirst($name);
+            }
+            $string .= sprintf("%s: %s\r\n", $name, $value);
         }
         return $string;
     }
@@ -86,6 +97,36 @@ class HeaderStore implements Countable
     public function __toString()
     {
         return $this->toString();
+    }
+
+    /**
+     * Parse headers from the given string and return any excess data
+     * that might be useful.
+     */
+    public function parseFromString($string)
+    {
+        $split = preg_split("/\r\n\r\n|\n\n|\r\r/", $string, 2);
+        $headers = preg_split("/\r\n|\n|\r/", $split[0]);
+        $content = $split[1];
+        $protocolArray = explode(' ', trim(array_shift($headers)), 3);
+        $protocol = $protocolArray[0];
+        $code = $protocolArray[1];
+        if (isset($protocolArray[2])) {
+            $message = $protocolArray[2];
+        } else {
+            $message = '';
+        }
+        while ($header = trim(array_shift($headers))) {
+            $parts = explode(':', $header, 2);
+            $name = strtolower($parts[0]);
+            $this->set($name, trim($parts[1]));
+        }
+        return array(
+            'content' => $content,
+            'protocol' => $protocol,
+            'code' => $code,
+            'message' => $message
+        );
     }
 
     public function count()

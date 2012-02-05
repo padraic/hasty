@@ -37,8 +37,8 @@ class Pool
     protected $options = array(
         'timeout' => 30,
         'context' => null,
-        'max_redirects' => 3,
         'headers' => array(),
+        'max_redirects' => 3,
         'method' => self::GET,
         'chunk_size' => 1024
     );
@@ -217,26 +217,18 @@ class Pool
         $this->maxTimeout = $timeout;
     }
 
-    protected function parseHeaders($id)
+    protected function parseHeaders($response)
     {
-        $response = $this->responses[$id];
-        if (count($response->get('headers')) > 0) {
+        if (count($response->headers) > 0) {
             return;
         }
-        $split = preg_split("/\r\n\r\n|\n\n|\r\r/", $response->get('data'), 2);
-        $headers = preg_split("/\r\n|\n|\r/", $split[0]);
-        $response->set('data', $content = $split[1]);
-        $protocol = explode(' ', trim(array_shift($headers)), 3);
-        $response->set('protocol', $protocol[0]);
-        $code = $protocol[1];
-        if (isset($protocol[2])) {
-            $response->set('message', $protocol[2]);
+        $other = $response->headers->parseFromString($response->get('data'));
+        $code = $other['code'];
+        $response->set('data', $other['content']);
+        if (!empty($other['message'])) {
+            $response->set('message', $other['message']);
         }
-        while ($header = trim(array_shift($headers))) {
-            $parts = explode(':', $header, 2);
-            $name = strtolower($parts[0]);
-            $response->set('headers', array($name => trim($parts[1])));
-        }
+        $response->set('protocol', $other['protocol']);
         if (!isset($this->responseCodes[$code])) {
             $code = floor($code / 100) * 100;
         }
@@ -264,15 +256,14 @@ class Pool
         $content = fread($read, $options['chunk_size']);
         $response->set('data', $response->get('data').$content);
         $meta = stream_get_meta_data($read);
-        $headers = $response->get('headers');
         $data = $response->get('data');
-        if (empty($headers) && (
+        if (count($response->headers) == 0 && (
             strpos($data, "\r\r")
             || strpos($data, "\r\n\r\n")
             || strpos($data, "\n\n")
         )) {
-            $this->parseHeaders($id);
-            if (count($response->get('headers')) > 0) {
+            $this->parseHeaders($response);
+            if (count($response->headers) > 0) {
                 $redirectUri = $response->get('redirect_uri');
                 if (!empty($redirectUri)) {
                     $response->set('status', self::STATUS_COMPLETED);
@@ -281,7 +272,7 @@ class Pool
                     return;
                 }
             }
-            $response->set('options', array('chunk_size'=>32768));
+            $response->set('options', array('chunk_size'=>32768)); // this will overwrite all opts
         }
         $active = !feof($read)
             && !$meta['eof']
@@ -332,15 +323,12 @@ class Pool
     protected function decodeResponsesData()
     {
         foreach ($this->responses as $id => $response) {
-            $headers = $response->get('headers');
-            if (isset($headers['transfer-encoding'])
-            && $headers['transfer-encoding'] = 'chunked') {
+            $headers = $response->headers;
+            if ($headers->contains('transfer_encoding', 'chunked')) {
                 # TODO
-            } elseif (isset($headers['content-encoding'])
-            && $headers['transfer-encoding'] = 'gzip') {
+            } elseif ($headers->contains('content_encoding', 'gzip')) {
                 $response->set('data', gzinflate(substr($reponse->get('data')), 10));
-            } elseif (isset($headers['transfer-encoding'])
-            && $headers['transfer-encoding'] = 'deflate') {
+            } elseif ($headers->contains('content_encoding', 'deflate')) {
                 $response->set('data', gzinflate($reponse->get('data')));
             }
         }
@@ -349,12 +337,12 @@ class Pool
     protected function handleRedirectFor($id, $code)
     {
         $response = $this->responses[$id];
-        $headers = $response->get('headers');
+        $headers = $response->headers;
         $options = $response->get('options');
-        if (!filter_var($headers['location'], FILTER_VALIDATE_URL)) {
+        if (!filter_var($headers->get('location'), FILTER_VALIDATE_URL)) {
             $location = '';
-            $parts = @parse_url($headers['location']);
-            $base = @parse_url($response->get('request'));
+            $parts = @parse_url($headers->get('location'));
+            $base = @parse_url($response->get('raw_request')); //update to raw?
             if (empty($parts['scheme'])) {
                 $parts['scheme'] = $base['scheme'];
             }
@@ -389,15 +377,15 @@ class Pool
                 .' from the details received from'.$response->get('request'));
             }
         } else {
-            $location = $headers['location'];
+            $location = $headers->get('location');
         }
         if ($options['max_redirects'] <= 0) {
             $response->set('error', true);
             $response->set('message', 'Maximum redirects have been exhausted');
         } else {
             $response->set('max_redirects', $responses->get('max_redirects')-1); //move to local status store
-            $response->set('headers', array('Referer' => $response->get('url')));
-            $response->set('headers', array('Host' => null)); //unset on null
+            $headers->set('referer', $response->get('url'));
+            $headers->remove('host');
             $response->set('redirect_code', $code);
         }
         $response->set('redirect_uri', $location);
@@ -413,7 +401,6 @@ class Pool
             'request' => $request,
             'raw_request' => $request->get('raw_request'),
             'status' => self::STATUS_PROGRESSING,
-            'headers' => array(),
             'data' => '',
             'redirect_uri' => null,
             'redirect_code' => null,

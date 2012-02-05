@@ -11,7 +11,6 @@ class Response
         'request' => null,
         'raw_request' => '',
         'status' => Pool::STATUS_PROGRESSING,
-        'headers' => array(),
         'data' => '',
         'redirect_uri' => null,
         'redirect_code' => null,
@@ -22,11 +21,14 @@ class Response
         'error' => false
     );
 
+    public $headers = null;
+
     public function __construct(array $data)
     {
         foreach ($data as $key => $value) {
             $this->set($key, $value);
         }
+        $this->headers = new HeaderStore();
     }
 
     public function get($key)

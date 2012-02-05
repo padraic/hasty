@@ -9,7 +9,6 @@ class Request
         'timeout' => 30,
         'context' => null,
         'max_redirects' => 5,
-        'headers' => array(),
         'method' => Pool::GET,
         'chunk_size' => 1024,
         'socket' => '',
@@ -21,6 +20,8 @@ class Request
         'url' => ''
     );
 
+    public $headers = null;
+
     public function __construct($url, array $options = null)
     {
         if (!filter_var($url, FILTER_VALIDATE_URL)) {
@@ -28,6 +29,7 @@ class Request
                 'Unable to create a new request due to an invalid URL: '.$url
             );
         }
+        $this->headers = new HeaderStore;
         if (!is_null($options)) {
             $options = $this->processOptions($options);
             $this->options = array_merge($this->options, $options);
@@ -92,8 +94,8 @@ class Request
                 );
                 break;
         }
-        $this->set('headers', array('Host' => $host)); // this doesn't work obviously :P
-        $this->set('headers', array('Connection' => 'close')); 
+        $this->headers->set('host', $host);
+        $this->headers->set('connection', 'close');
         if (isset($parts['path'])) {
             $path = $parts['path'];
         } else {
@@ -102,14 +104,9 @@ class Request
         $request = $this->get('method')
             . " "
             . $path
-            . " HTTP/1.0\r\n"; // for now...
-        foreach ($this->get('headers') as $name => $value) {
-            $request .= trim($name)
-                . ": "
-                . trim($value)
-                . "\r\n";
-        }
-        $request .= "\r\n";
+            . " HTTP/1.0\r\n" // for now...
+            . $this->headers->toString()
+            . "\r\n";
         $this->set('scheme', $port);
         $this->set('host', $port);
         $this->set('port', $port);
@@ -148,12 +145,14 @@ class Request
                     $options[$key] = $value;
                     break;
                 case 'headers':
-                    if (!is_array($value)) {
+                    if (!is_array($value)) { // TODO - accept HeaderStore ;)
                         throw new \InvalidArgumentException(
                             'Value of \'headers\' provided to Hasty\\Request must be an '
                             . 'associative array of header names and values.'
                         );
                     }
+                    $this->headers->populate($value);
+                    unset($options['headers']);
                     break;
                 case 'method':
                     if (!in_array($value, array(Pool::GET, Pool::POST, Pool::HEAD))) {
