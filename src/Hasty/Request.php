@@ -166,4 +166,143 @@ class Request
         }
         return $options;
     }
+
+    // API to implement from Pool
+
+    const GET = 'GET';
+    const POST = 'POST';
+    const HEAD = 'HEAD';
+    const PUT = 'PUT';
+    const DELETE = 'DELETE';
+    const OPTIONS = 'OPTIONS';
+    const TRACE = 'TRACE';
+    const CONNECT = 'CONNECT';
+
+    protected $method = null;
+
+    protected $uri = null;
+
+    protected $parameters = array();
+
+    public $headers = null;
+
+    protected $query = array();
+
+    protected $post = array();
+
+    protected $file = array();
+
+
+
+    public function setMethod($method)
+    {
+        
+    }
+
+    public function getMethod()
+    {
+        
+    }
+
+    public function setUri($uri)
+    {
+        
+    }
+
+    public function getUri()
+    {
+        
+    }
+
+    public function getUrl()
+    {
+        return $this->getUri();
+    }
+
+    public function setVersion($version)
+    {
+
+    }
+
+    public function getVersion()
+    {
+
+    }
+
+    public function setQuery()
+    {
+
+    }
+
+    public function setPost()
+    {
+
+    }
+
+    public function setFile()
+    {
+
+    }
+
+    public function getHeaders()
+    {
+        return $this->headers;
+    }
+
+    public function isGet()
+    {
+
+    }
+
+    public function isPost()
+    {
+
+    }
+
+    public function isHead()
+    {
+
+    }
+
+    public function isPut()
+    {
+
+    }
+
+    public function isDelete()
+    {
+
+    }
+
+    public function isOptions()
+    {
+
+    }
+
+    public function isTrace()
+    {
+
+    }
+
+    public function isConnect()
+    {
+
+    }
+
+    public function toString()
+    {
+
+    }
+
+    public function __toString()
+    {
+        return $this->toString();
+    }
+
+    public function fromString($string)
+    {
+
+    }
+
+
 }

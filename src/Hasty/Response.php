@@ -304,7 +304,7 @@ class Response
                 mb_internal_encoding('ASCII');
             }
             while (trim($content)) {
-                if (! preg_match("/^([\da-fA-F]+)[^\r\n]*\r\n/sm", $content, $m)) {
+                if (!preg_match("/^([\da-fA-F]+)[^\r\n]*\r\n/sm", $content, $m)) {
                     throw new Exception\RuntimeException(
                         'Error parsing body - does not seem to be a chunked message'
                     );
