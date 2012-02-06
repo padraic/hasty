@@ -100,8 +100,7 @@ class HeaderStore implements \Countable
     }
 
     /**
-     * Parse headers from the given string and return any excess data
-     * that might be useful.
+     * Updated for revised response - TODO
      */
     public function parseFromString($string)
     {

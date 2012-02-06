@@ -26,6 +26,9 @@ class Pool
     const POST = 'POST';
     const HEAD = 'HEAD';
 
+    const HTTP_10 = '1.0';
+    const HTTP_11 = '1.1';
+
     const STATUS_PROGRESSING = 'progressing';
     const STATUS_TIMEDOUT = 'timedout';
     const STATUS_ERROR = 'error';
@@ -52,6 +55,7 @@ class Pool
     protected $responseCodes = array(
         100 => 'Continue',
         101 => 'Switching Protocols',
+        102 => 'Processing',
         200 => 'OK',
         201 => 'Created',
         202 => 'Accepted',
@@ -59,12 +63,15 @@ class Pool
         204 => 'No Content',
         205 => 'Reset Content',
         206 => 'Partial Content',
+        207 => 'Multi-status',
+        208 => 'Already Reported',
         300 => 'Multiple Choices',
         301 => 'Moved Permanently',
         302 => 'Found',
         303 => 'See Other',
         304 => 'Not Modified',
         305 => 'Use Proxy',
+        306 => 'Switch Proxy',
         307 => 'Temporary Redirect',
         400 => 'Bad Request',
         401 => 'Unauthorized',
@@ -84,13 +91,26 @@ class Pool
         415 => 'Unsupported Media Type',
         416 => 'Requested range not satisfiable',
         417 => 'Expectation Failed',
+        418 => 'I\'m a teapot',
+        422 => 'Unprocessable Entity',
+        423 => 'Locked',
+        424 => 'Failed Dependency',
+        425 => 'Unordered Collection',
+        426 => 'Upgrade Required',
+        428 => 'Precondition Required',
+        429 => 'Too Many Requests',
+        431 => 'Request Header Fields Too Large',
         500 => 'Internal Server Error',
         501 => 'Not Implemented',
         502 => 'Bad Gateway',
         503 => 'Service Unavailable',
         504 => 'Gateway Time-out',
-        505 => 'HTTP Version not supported'
-      );
+        505 => 'HTTP Version not supported',
+        506 => 'Variant Also Negotiates',
+        507 => 'Insufficient Storage',
+        508 => 'Loop Detected',
+        511 => 'Network Authentication Required',
+    );
 
     public function __construct(array $options = null)
     {
@@ -217,37 +237,6 @@ class Pool
         $this->maxTimeout = $timeout;
     }
 
-    protected function parseHeaders($response)
-    {
-        if (count($response->headers) > 0) {
-            return;
-        }
-        $other = $response->headers->parseFromString($response->get('data'));
-        $code = $other['code'];
-        $response->set('data', $other['content']);
-        if (!empty($other['message'])) {
-            $response->set('message', $other['message']);
-        }
-        $response->set('protocol', $other['protocol']);
-        if (!isset($this->responseCodes[$code])) {
-            $code = floor($code / 100) * 100;
-        }
-        $response->set('code', $code);
-        switch ($code) {
-            case 200:
-            case 304:
-                break;
-            case 301:
-            case 302:
-            case 307:
-                $this->handleRedirectFor($id, $code);
-                break;
-            default:
-                $response->set('error', true);
-                $response->set('message', $response->get('status'));
-        }
-    }
-
     protected function performRead($read)
     {
         $id = array_search($read, $this->streams);
@@ -262,7 +251,7 @@ class Pool
             || strpos($data, "\r\n\r\n")
             || strpos($data, "\n\n")
         )) {
-            $this->parseHeaders($response);
+            $response->appendChunk($data);
             if (count($response->headers) > 0) {
                 $redirectUri = $response->get('redirect_uri');
                 if (!empty($redirectUri)) {
@@ -318,20 +307,6 @@ class Pool
     protected function handleRequestRedirectFromRead()
     {
 
-    }
-
-    protected function decodeResponsesData()
-    {
-        foreach ($this->responses as $id => $response) {
-            $headers = $response->headers;
-            if ($headers->contains('transfer_encoding', 'chunked')) {
-                # TODO
-            } elseif ($headers->contains('content_encoding', 'gzip')) {
-                $response->set('data', gzinflate(substr($reponse->get('data')), 10));
-            } elseif ($headers->contains('content_encoding', 'deflate')) {
-                $response->set('data', gzinflate($reponse->get('data')));
-            }
-        }
     }
 
     protected function handleRedirectFor($id, $code)
