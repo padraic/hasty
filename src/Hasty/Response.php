@@ -244,49 +244,50 @@ class Response
         return $this->toString();
     }
 
-    public function appendChunk($chunk)
+    public function appendChunk($string)
     {
-        $lines = preg_split('/\r\n/', $string);
-        if (!is_array($lines) || count($lines) == 1) {
-            $lines = preg_split ('/\n/',$string);
-        }
-        $firstLine = array_shift($lines);
-        $matches = null;
-        if (!preg_match('/^HTTP\/(?P<version>1\.[01]) (?P<status>\d{3}) (?P<reason>.*)$/',
-        $firstLine, $matches) && count($this->headers) == 0) {
-            throw new \InvalidArgumentException(
-                'A valid response status line was not found in the provided string'
-            );
-        }
-        if (count($this->headers == 0)) { // check this for branching logic errors
+        if (count($this->headers) === 0) {
+            $lines = preg_split('/\r\n/', $string);
+            if (!is_array($lines) || count($lines) == 1) {
+                $lines = preg_split ('/\n/',$string);
+            }
+            $firstLine = array_shift($lines);
+            $matches = null;
+            if (!preg_match('/^HTTP\/(?P<version>1\.[01]) (?P<status>\d{3}) (?P<reason>.*)$/',
+            $firstLine, $matches)) {
+                throw new \InvalidArgumentException(
+                    'A valid response status line was not found in the provided string'
+                );
+            }
             $this->setVersion($matches['version']);
             $this->setStatusCode($matches['status']);
             $this->setReasonPhrase($matches['reason']);
-        }
-        if (count($lines) == 0) {
-            return;
-        }
-        $isHeader = true;
-        $headers = $content = array();
-        while ($lines) {
-            $nextLine = array_shift($lines);
-            if ($nextLine == '') {
-                $isHeader = false;
-                continue;
+            if (count($lines) == 0) {
+                return;
             }
-            if ($isHeader) {
-                $headers[] .= $nextLine;
-            } else {
-                $content[] .= $nextLine;
+            $isHeader = true;
+            $headers = $content = array();
+            while ($lines) {
+                $nextLine = array_shift($lines);
+                if ($nextLine == '') {
+                    $isHeader = false;
+                    continue;
+                }
+                if ($isHeader) {
+                    $headers[] .= $nextLine;
+                } else {
+                    $content[] .= $nextLine;
+                }
             }
-        }
-        if ($headers) {
-            $response->headers->parseFromString(implode("\r\n", $headers));
-        }
-        if ($content) {
-            $response->appendContent(implode("\r\n", $content));
-        }
-        return $response;
+            if ($headers) {
+                $this->headers->fromString(implode("\r\n", $headers));
+            }
+            if ($content) {
+                $this->appendContent(implode("\r\n", $content));
+            }
+        } else {
+            $this->appendContent($string);
+        }  
     }
 
     public function fromString($string)
@@ -321,7 +322,7 @@ class Response
         } elseif ($this->headers->contains('content_encoding', 'gzip')) {
             return gzinflate(substr($content), 10);
         } elseif ($this->headers->contains('content_encoding', 'deflate')) {
-            return gzinflate($content));
+            return gzinflate($content);
         }
         return $content;
     }

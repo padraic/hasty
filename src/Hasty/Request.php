@@ -20,8 +20,6 @@ class Request
         'url' => ''
     );
 
-    public $headers = null;
-
     public function __construct($url, array $options = null)
     {
         if (!filter_var($url, FILTER_VALIDATE_URL)) {

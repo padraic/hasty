@@ -75,6 +75,11 @@ class HeaderStore implements \Countable
         }
     }
 
+    public function clear()
+    {
+        $this->headers = array();
+    }
+
     public function toString()
     {
         if (count($this->headers) == 0) {
@@ -99,33 +104,34 @@ class HeaderStore implements \Countable
         return $this->toString();
     }
 
-    /**
-     * Updated for revised response - TODO
-     */
-    public function parseFromString($string)
+    public function fromString($string)
     {
-        $split = preg_split("/\r\n\r\n|\n\n|\r\r/", $string, 2);
-        $headers = preg_split("/\r\n|\n|\r/", $split[0]);
-        $content = $split[1];
-        $protocolArray = explode(' ', trim(array_shift($headers)), 3);
-        $protocol = $protocolArray[0];
-        $code = $protocolArray[1];
-        if (isset($protocolArray[2])) {
-            $message = $protocolArray[2];
-        } else {
-            $message = '';
+        $current = array();
+        foreach (preg_split('#\r\n#', $string) as $line) {
+            if (preg_match('/^(?P<name>[^()><@,;:\"\\/\[\]?=}{ \t]+):.*$/', $line, $matches)) {
+                if ($current) {
+                    list($name, $value) = preg_split('#: #', $current['line'], 2);
+                    $this->set($name, $value);
+                }
+                $current = array(
+                    'name' => $matches['name'],
+                    'line' => trim($line)
+                );
+            } elseif (preg_match('/^\s+.*$/', $line, $matches)) {
+                $current['line'] .= trim($line);
+            } elseif (preg_match('/^\s*$/', $line)) {
+                break;
+            } else {
+                throw new \RuntimeException(sprintf(
+                    'Line "%s" does not match header format!',
+                    $line
+                ));
+            }
         }
-        while ($header = trim(array_shift($headers))) {
-            $parts = explode(':', $header, 2);
-            $name = strtolower($parts[0]);
-            $this->set($name, trim($parts[1]));
+        if ($current) {
+            list($name, $value) = preg_split('#: #', $current['line'], 2);
+            $this->set($name, $value);
         }
-        return array(
-            'content' => $content,
-            'protocol' => $protocol,
-            'code' => $code,
-            'message' => $message
-        );
     }
 
     public function count()

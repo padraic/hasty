@@ -196,7 +196,6 @@ class Pool
             }
         }
         restore_error_handler();
-        $this->decodeResponsesData(); // move to Response
         return $this->responses;
     }
 
@@ -242,31 +241,21 @@ class Pool
         $id = array_search($read, $this->streams);
         $response = $this->responses[$id];
         $options = $response->get('options');
-        $content = fread($read, $options['chunk_size']);
-        $response->set('data', $response->get('data').$content);
-        $meta = stream_get_meta_data($read);
-        $data = $response->get('data');
-        if (count($response->headers) == 0 && (
-            strpos($data, "\r\r")
-            || strpos($data, "\r\n\r\n")
-            || strpos($data, "\n\n")
-        )) {
-            $response->appendChunk($data);
-            if (count($response->headers) > 0) {
-                $redirectUri = $response->get('redirect_uri');
-                if (!empty($redirectUri)) {
-                    $response->set('status', self::STATUS_COMPLETED);
-                    fclose($read);
-                    unset($this->streams[$id]);
-                    return;
-                }
-            }
-            $response->set('options', array('chunk_size'=>32768)); // this will overwrite all opts
+        $chunk = fread($read, $options['chunk_size']);
+        $response->appendChunk($chunk);
+        if (count($response->headers) > 0 && $response->isRedirect()) {
+            $response->set('status', self::STATUS_COMPLETED);
+            fclose($read);
+            unset($this->streams[$id]);
+            return;
+        } elseif (count($response->headers) > 0) {
+            $response->set('options', array('chunk_size'=>32768));
         }
+        $meta = stream_get_meta_data($read);
         $active = !feof($read)
             && !$meta['eof']
             && !$meta['timed_out']
-            && strlen($content);
+            && strlen($chunk);
         if (!$active) {
             if ($response->get('status') == self::STATUS_PROGRESSING) {
                 $response->set('status', self::STATUS_CONNECTIONFAILED);
