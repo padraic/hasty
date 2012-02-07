@@ -56,6 +56,8 @@ class Pool
 
     protected $maxTimeout = 30;
 
+    protected $writeBuffers = array();
+
     protected $responseCodes = array(
         100 => 'Continue',
         101 => 'Switching Protocols',
@@ -138,7 +140,7 @@ class Pool
         });
         if (is_null($request->get('context'))) { // needed dup?
             $pointer = stream_socket_client(
-                $request->get('socket'),
+                $request->getSocketUri(),
                 $errorCode,
                 $errorString,
                 $request->get('timeout'),
@@ -146,7 +148,7 @@ class Pool
             );
         } else {
             $pointer = stream_socket_client(
-                $request->get('socket'),
+                $request->getSocketUri(),
                 $errorCode,
                 $errorString,
                 $request->get('timeout'),
@@ -208,6 +210,7 @@ class Pool
         $this->responses = array();
         $this->requests = array();
         $this->streams = array();
+        $this->writeBuffers = array();
         $this->streamCounter = 0;
         $this->maxTimeout = 30;
     }
@@ -277,17 +280,19 @@ class Pool
     {
         $id = array_search($write, $this->streams);
         $response = $this->responses[$id];
+        $request = $this->requests[$id];
         if (isset($this->streams[$id])
         && $response->get('status') == self::STATUS_PROGRESSING) {
-            $size = strlen($response->get('raw_request'));
-            $written = fwrite($write, $response->get('raw_request'), $size);
+            if (!isset($this->writeBuffers[$id])) {
+                $this->writeBuffers[$id] = $request->toString();
+            }
+            $size = strlen($this->writeBuffers[$id]);
+            $written = fwrite($write, $this->writeBuffers[$id], $size);
             if ($written >= $size) {
                 $response->set('status', self::STATUS_WAITINGFORRESPONSE);
+                unset($this->writeBuffers[$id]);
             } else {
-                $response->set('raw_request', substr(
-                    $response->get('raw_request'),
-                    $written
-                ));
+                $this->writeBuffers[$id] = substr($this->writeBuffers[$id], $written);
             }
         }
     }
@@ -378,6 +383,7 @@ class Pool
             'message' => null,
             'error' => false)
         );
+        $this->requests[$this->streamCounter] = $request;
         $this->streamCounter++;
     }
 

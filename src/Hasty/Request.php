@@ -112,9 +112,11 @@ class Request
     const HTTP_10 = '1.0';
     const HTTP_11 = '1.1';
 
-    protected $method = null;
+    protected $method = self::GET;
 
     protected $uri = null;
+
+    protected $version = self::HTTP_10;
 
     protected $parameters = array();
 
@@ -301,12 +303,14 @@ class Request
 
     public function toString()
     {
-        $this->headers->set('host', $host);
+        $this->headers->set('host', $this->getUriHost());
         $this->headers->set('connection', 'close');
         $request = $this->getMethod()
             . " "
             . $this->getUriPath()
-            . " HTTP/1.0\r\n" // for now...see getVersion()
+            . " HTTP/"
+            . $this->getVersion()
+            . "\r\n"
             . $this->headers->toString()
             . "\r\n";
         return $request;
