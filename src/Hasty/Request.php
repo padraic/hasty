@@ -9,15 +9,7 @@ class Request
         'timeout' => 30,
         'context' => null,
         'max_redirects' => 5,
-        'method' => Pool::GET,
-        'chunk_size' => 1024,
-        'socket' => '',
-        'host' => '',
-        'port' => '',
-        'raw_request' => '',
-        'scheme' => '',
-        'path' => '',
-        'url' => ''
+        'chunk_size' => 1024
     );
 
     public function __construct($url, array $options = null)
@@ -32,7 +24,7 @@ class Request
             $options = $this->processOptions($options);
             $this->options = array_merge($this->options, $options);
         }
-        $this->processUrl($url);
+        $this->processUri($url);
     }
 
     public function get($key)
@@ -57,61 +49,6 @@ class Request
     public function getOptions()
     {
         return $this->options;
-    }
-
-    protected function processUrl($url)
-    {
-        $parts = parse_url($url);
-        $port = '';
-        $socket = '';
-        $host = $parts['host'];
-        $path = '';
-        $request = '';
-        switch ($parts['scheme']) {
-            case 'http':
-                if (isset($parts['port'])) {
-                    $port = $parts['port'];
-                    $host = $host.':'.$port;
-                } else {
-                    $port = '80';
-                }
-                $socket = 'tcp://'.$host.':'.$port;
-                break;
-            case 'https':
-                if (isset($parts['port'])) {
-                    $port = $parts['port'];
-                    $host = $host.':'.$port;
-                } else {
-                    $port = '443';
-                }
-                $socket = 'ssl://'.$host.':'.$port;
-                break;
-            default:
-                throw new \InvalidArgumentException(
-                    'Unable to add a new request due to an unsupported URL schema in: '.$url
-                );
-                break;
-        }
-        $this->headers->set('host', $host);
-        $this->headers->set('connection', 'close');
-        if (isset($parts['path'])) {
-            $path = $parts['path'];
-        } else {
-            $path = '/';
-        }
-        $request = $this->get('method')
-            . " "
-            . $path
-            . " HTTP/1.0\r\n" // for now...
-            . $this->headers->toString()
-            . "\r\n";
-        $this->set('scheme', $port);
-        $this->set('host', $port);
-        $this->set('port', $port);
-        $this->set('path', $port);
-        $this->set('raw_request', $request);
-        $this->set('url', $url);
-        $this->set('socket', $socket);
     }
 
     protected function processOptions(array $options)
@@ -153,12 +90,8 @@ class Request
                     unset($options['headers']);
                     break;
                 case 'method':
-                    if (!in_array($value, array(Pool::GET, Pool::POST, Pool::HEAD))) {
-                        throw new \InvalidArgumentException(
-                            'Value of \'method\' provided to Hasty\\Request must be one of '
-                            . 'GET, POST or HEAD'
-                        );
-                    }
+                    $this->setMethod($value);
+                    unset($options['method']);
                     break;
             }
         }
@@ -176,6 +109,9 @@ class Request
     const TRACE = 'TRACE';
     const CONNECT = 'CONNECT';
 
+    const HTTP_10 = '1.0';
+    const HTTP_11 = '1.1';
+
     protected $method = null;
 
     protected $uri = null;
@@ -190,26 +126,45 @@ class Request
 
     protected $file = array();
 
+    protected $uriScheme = null;
 
+    protected $uriHost = null;
+
+    protected $uriPort = null;
+
+    protected $uriPath = null;
+
+    protected $socketUri = null;
 
     public function setMethod($method)
     {
-        
+        if (!in_array($method, array(self::GET, self::POST, self::HEAD,
+        self::PUT, self::DELETE, self::OPTIONS, self::TRACE, self::CONNECT))) {
+            throw new \InvalidArgumentException(sprintf(
+                'Invalid method type given: %s', $method
+            ));
+        }
+        $this->method = $method;
     }
 
     public function getMethod()
     {
-        
+        return $this->method;
     }
 
     public function setUri($uri)
     {
-        
+        if (!filter_var($uri, FILTER_VALIDATE_URL)) {
+            throw new \InvalidArgumentException(sprintf(
+                'Invalid HTTP URI provided: %s', $uri
+            ));
+        }
+        $this->processUri($uri);
     }
 
     public function getUri()
     {
-        
+        return $this->uri;
     }
 
     public function getUrl()
@@ -219,12 +174,17 @@ class Request
 
     public function setVersion($version)
     {
-
+        if (!in_array($version, array(self::HTTP_10, self::HTTP_11))) {
+            throw new \InvalidArgumentException(sprintf(
+                'Invalid protocol version string: %s', $version
+            ));
+        }
+        $this->version = $version;
     }
 
     public function getVersion()
     {
-
+        return $this->version;
     }
 
     public function setQuery()
@@ -242,6 +202,58 @@ class Request
 
     }
 
+    // parseable URI info
+
+    public function setUriScheme($scheme)
+    {
+        $this->uriScheme = $scheme;
+    }
+
+    public function setUriHost($host)
+    {
+        $this->uriHost = $host;
+    }
+
+    public function setUriPort($port)
+    {
+        $this->uriPort = $port;
+    }
+
+    public function setUriPath($path)
+    {
+        $this->uriPath = $path;
+    }
+
+    public function setSocketUri($uri)
+    {
+        $this->socketUri = $uri;
+    }
+
+    public function getUriScheme()
+    {
+        return $this->uriScheme;
+    }
+
+    public function getUriHost()
+    {
+        return $this->uriHost;
+    }
+
+    public function getUriPort()
+    {
+        return $this->uriPort;
+    }
+
+    public function getUriPath()
+    {
+        return $this->uriPath;
+    }
+
+    public function getSocketUri()
+    {
+        return $this->socketUri;
+    }
+
     public function getHeaders()
     {
         return $this->headers;
@@ -249,47 +261,55 @@ class Request
 
     public function isGet()
     {
-
+        return $this->getMethod() === self::GET;
     }
 
     public function isPost()
     {
-
+        return $this->getMethod() === self::GET;
     }
 
     public function isHead()
     {
-
+        return $this->getMethod() === self::HEAD;
     }
 
     public function isPut()
     {
-
+        return $this->getMethod() === self::PUT;
     }
 
     public function isDelete()
     {
-
+        return $this->getMethod() === self::DELETE;
     }
 
     public function isOptions()
     {
-
+        return $this->getMethod() === self::OPTIONS; 
     }
 
     public function isTrace()
     {
-
+        return $this->getMethod() === self::TRACE;
     }
 
     public function isConnect()
     {
-
+        return $this->getMethod() === self::CONNECT;
     }
 
     public function toString()
     {
-
+        $this->headers->set('host', $host);
+        $this->headers->set('connection', 'close');
+        $request = $this->getMethod()
+            . " "
+            . $this->getUriPath()
+            . " HTTP/1.0\r\n" // for now...see getVersion()
+            . $this->headers->toString()
+            . "\r\n";
+        return $request;
     }
 
     public function __toString()
@@ -300,6 +320,52 @@ class Request
     public function fromString($string)
     {
 
+    }
+
+    protected function processUri($uri)
+    {
+        $parts = parse_url($uri);
+        $port = '';
+        $socket = '';
+        $host = $parts['host'];
+        $path = '';
+        $request = '';
+        switch ($parts['scheme']) {
+            case 'http':
+                if (isset($parts['port'])) {
+                    $port = $parts['port'];
+                    $host = $host.':'.$port;
+                } else {
+                    $port = '80';
+                }
+                $socket = 'tcp://'.$host.':'.$port;
+                break;
+            case 'https':
+                if (isset($parts['port'])) {
+                    $port = $parts['port'];
+                    $host = $host.':'.$port;
+                } else {
+                    $port = '443';
+                }
+                $socket = 'ssl://'.$host.':'.$port;
+                break;
+            default:
+                throw new \InvalidArgumentException(sprintf(
+                    'Unable to add a new request due to an unsupported URL schema in: %s', $uri
+                ));
+                break;
+        }
+        if (isset($parts['path'])) {
+            $path = $parts['path'];
+        } else {
+            $path = '/';
+        }
+        $this->uri = $uri;
+        $this->setUriScheme($parts['scheme']);
+        $this->setUriHost($host);
+        $this->setUriPort($port);
+        $this->setUriPath($path);
+        $this->setSocketUri($socket);
     }
 
 

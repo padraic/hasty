@@ -246,7 +246,7 @@ class Response
 
     public function appendChunk($string)
     {
-        if (count($this->headers) === 0) {
+        if (count($this->headers) === 0) { // and when there are no headers in response? ;)
             $lines = preg_split('/\r\n/', $string);
             if (!is_array($lines) || count($lines) == 1) {
                 $lines = preg_split ('/\n/',$string);

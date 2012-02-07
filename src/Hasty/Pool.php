@@ -6,13 +6,13 @@ namespace Hasty;
  * TODO
  *
  * - Improve error handling
- * - Support PUT/DELETE
+ * - Support PUT/DELETE [DONE]
  * - Support Cookies
- * - Support chunked transfer-encoding
+ * - Support chunked transfer-encoding [DONE]
  * - Support non-HTTP/HTTPS schemas
  * - Add HTTP 1.1 support
  * - Add support for keep-alive in HTTP 1.1
- * - Implement Request/Response proper objects
+ * - Implement Request/Response proper objects [DONE]
  * - Check RFC 3986 compliance
  * - Added request data and encoding support (query strings and post data)
  * - Support restrictions on parallel request count both globally and by host
@@ -47,9 +47,13 @@ class Pool
     );
 
     protected $requests = array();
+
     protected $responses = array();
+
     protected $streams = array();
+
     protected $streamCounter = 0;
+
     protected $maxTimeout = 30;
 
     protected $responseCodes = array(
