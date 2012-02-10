@@ -5,101 +5,6 @@ namespace Hasty;
 class Request
 {
 
-    protected $options = array(
-        'timeout' => 30,
-        'context' => null,
-        'max_redirects' => 5,
-        'chunk_size' => 1024
-    );
-
-    public function __construct($url, array $options = null)
-    {
-        if (!filter_var($url, FILTER_VALIDATE_URL)) {
-            throw new \InvalidArgumentException(
-                'Unable to create a new request due to an invalid URL: '.$url
-            );
-        }
-        $this->headers = new HeaderStore;
-        if (!is_null($options)) {
-            $options = $this->processOptions($options);
-            $this->options = array_merge($this->options, $options);
-        }
-        $this->processUri($url);
-    }
-
-    public function get($key)
-    {
-        if (isset($this->options[$key])) {
-            return $this->options[$key];
-        }
-    }
-
-    public function set($key, $value)
-    {
-        if (!array_key_exists($key, $this->options)) {
-            throw new \InvalidArgumentException (
-                'Option does not exist: '.$key
-            );
-        }
-        $option = array($key => $value);
-        $option = $this->processOptions($option);
-        $this->options = array_merge($this->options, $option);
-    }
-
-    public function getOptions()
-    {
-        return $this->options;
-    }
-
-    protected function processOptions(array $options)
-    {
-        foreach ($options as $key => $value) {
-            switch ($key) {
-                case 'timeout':
-                    $value = (float) $value;
-                    $value = max($value, $this->options[$key]);
-                    $options[$key] = (float) $value;
-                    break;
-                case 'context':
-                    if (!is_null($value) && (!is_resource($value)
-                    || get_resource_type($value) !== 'stream-context')) {
-                        throw new \InvalidArgumentException(
-                            'Value of \'context\' provided to Hasty\\Request must be a valid '
-                            . 'stream-context resource created via the stream_context_create() function'
-                        );
-                    }
-                    break;
-                case 'max_redirects':
-                    $value = (int) $value;
-                    if ($value <= 0) {
-                        throw new \InvalidArgumentException(
-                            'Value of \'max_redirects\' provided to Hasty\\Request must be greater '
-                            . 'than zero'
-                        );
-                    }
-                    $options[$key] = $value;
-                    break;
-                case 'headers':
-                    if (!is_array($value)) { // TODO - accept HeaderStore ;)
-                        throw new \InvalidArgumentException(
-                            'Value of \'headers\' provided to Hasty\\Request must be an '
-                            . 'associative array of header names and values.'
-                        );
-                    }
-                    $this->headers->populate($value);
-                    unset($options['headers']);
-                    break;
-                case 'method':
-                    $this->setMethod($value);
-                    unset($options['method']);
-                    break;
-            }
-        }
-        return $options;
-    }
-
-    // API to implement from Pool
-
     const GET = 'GET';
     const POST = 'POST';
     const HEAD = 'HEAD';
@@ -111,6 +16,12 @@ class Request
 
     const HTTP_10 = '1.0';
     const HTTP_11 = '1.1';
+
+    protected $options = array(
+        'timeout' => 30,
+        'context' => null,
+        'max_redirects' => 5
+    );
 
     protected $method = self::GET;
 
@@ -137,6 +48,35 @@ class Request
     protected $uriPath = null;
 
     protected $socketUri = null;
+
+    protected $context = null; // set this to fix the stupid insecure PHP defaults
+
+    protected $timeout = 30.0;
+
+    public function __construct($url, array $options = null)
+    {
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            throw new \InvalidArgumentException(
+                'Unable to create a new request due to an invalid URL: '.$url
+            );
+        }
+        $this->headers = new HeaderStore;
+        if (!is_null($options)) {
+            $this->setOptions($options);
+        }
+        $this->processUri($url);
+    }
+
+    public function setOptions(array $options)
+    {
+        $options = $this->processOptions($options);
+        $this->options = $this->options + $options;
+    }
+
+    public function getOptions()
+    {
+        return $this->options;
+    }
 
     public function setMethod($method)
     {
@@ -204,6 +144,37 @@ class Request
 
     }
 
+    public function setContext($context)
+    {
+        if (!is_null($context) && (!is_resource($context)
+        || get_resource_type($context) !== 'stream-context')) {
+            throw new \InvalidArgumentException(
+                'Value of \'context\' provided to Hasty\Request must be a valid '
+                . 'stream-context resource created via the stream_context_create() function'
+            );
+        }
+        $this->context = $context;
+    }
+
+    public function getContext()
+    {
+        if (!is_null($this->context)) {
+            return $this->context;
+        }
+        $this->context = stream_context_create();
+        return $this->context;
+    }
+
+    public function setTimeout($timeout)
+    {
+        $this->timeout = (float) $timeout;
+    }
+
+    public function getTimeout()
+    {
+        return $this->timeout;
+    }
+
     // parseable URI info
 
     public function setUriScheme($scheme)
@@ -268,7 +239,7 @@ class Request
 
     public function isPost()
     {
-        return $this->getMethod() === self::GET;
+        return $this->getMethod() === self::POST;
     }
 
     public function isHead()
@@ -299,6 +270,11 @@ class Request
     public function isConnect()
     {
         return $this->getMethod() === self::CONNECT;
+    }
+
+    public function isSecure()
+    {
+        return $this->getUriScheme() === 'https';
     }
 
     public function toString()
@@ -372,5 +348,42 @@ class Request
         $this->setSocketUri($socket);
     }
 
+    protected function processOptions(array $options)
+    {
+        foreach ($options as $key => $value) {
+            switch ($key) {
+                case 'timeout':
+                    $value = (float) $value;
+                    $value = max($value, $this->options[$key]);
+                    $options[$key] = (float) $value;
+                    break;
+                case 'max_redirects':
+                    $value = (int) $value;
+                    if ($value <= 0) {
+                        throw new \InvalidArgumentException(
+                            'Value of \'max_redirects\' provided to Hasty\\Request must be greater '
+                            . 'than zero'
+                        );
+                    }
+                    $options[$key] = $value;
+                    break;
+                case 'headers':
+                    if (!is_array($value)) { // TODO - accept HeaderStore ;)
+                        throw new \InvalidArgumentException(
+                            'Value of \'headers\' provided to Hasty\\Request must be an '
+                            . 'associative array of header names and values.'
+                        );
+                    }
+                    $this->headers->populate($value);
+                    unset($options['headers']);
+                    break;
+                case 'method':
+                    $this->setMethod($value);
+                    unset($options['method']);
+                    break;
+            }
+        }
+        return $options;
+    }
 
 }

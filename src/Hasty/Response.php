@@ -21,17 +21,24 @@ class Response
         'error' => false
     );
 
+    const HTTP_10 = '1.0';
+    const HTTP_11 = '1.1';
+
     public $headers = null;
 
     protected $protocol = 'HTTP'; // won't change in this iteration
 
-    protected $version = Pool::HTTP_10;
+    protected $version = self::HTTP_10;
 
     protected $statusCode = 200;
 
     protected $reasonPhrase = '';
 
     protected $content = '';
+
+    protected $status = Pool::STATUS_PROGRESSING;
+
+    protected $chunkSize = 1024;
 
     protected $responseCodes = array(
         100 => 'Continue',
@@ -172,6 +179,26 @@ class Response
     public function setContent($content)
     {
         $this->content = $content;
+    }
+
+    public function setRequestStatus($status)
+    {
+        $this->status = $status;
+    }
+
+    public function getRequestStatus()
+    {
+        return $this->status;
+    }
+
+    public function setChunkSize($size)
+    {
+        $this->chunkSize = (int) $size;
+    }
+
+    public function getChunkSize()
+    {
+        return $this->chunkSize;
     }
 
     public function appendContent($content)
