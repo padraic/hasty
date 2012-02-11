@@ -273,6 +273,9 @@ class Response
 
     public function appendChunk($string)
     {
+        if (strlen($string) === 0) { // add test for zero-length chunk handling
+            return;
+        }
         if (count($this->headers) === 0) { // and when there are no headers in response? ;)
             $lines = preg_split('/\r\n/', $string);
             if (!is_array($lines) || count($lines) == 1) {
