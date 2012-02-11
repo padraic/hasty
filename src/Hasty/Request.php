@@ -17,6 +17,8 @@ class Request
     const HTTP_10 = '1.0';
     const HTTP_11 = '1.1';
 
+    const EVENT_COMPLETE = 'complete';
+
     protected $options = array(
         'timeout' => 30,
         'context' => null,
@@ -52,6 +54,10 @@ class Request
     protected $context = null; // set this to fix the stupid insecure PHP defaults
 
     protected $timeout = 30.0;
+
+    protected $response = null;
+
+    protected $callbacks = array();
 
     public function __construct($url, array $options = null)
     {
@@ -232,6 +238,62 @@ class Request
         return $this->headers;
     }
 
+    public function setResponse(Response $response)
+    {
+        $this->response = $response;
+    }
+
+    public function getResponse()
+    {
+        return $this->response;
+    }
+
+    public function on($event, $callback)
+    {
+        if (!in_array($event, array(self::EVENT_COMPLETE))) {
+            throw new \InvalidArgumentException(sprintf(
+                'Invalid event name passed to Request: %s', $event
+            ));
+        }
+        if (!$this->isCallable($callback)) {
+            throw new \InvalidArgumentException(sprintf(
+                'Invalid callback passed to Request: %s', (string) $callback
+            ));
+        }
+        $this->callbacks[$event] = $callback;
+    }
+
+    public function hasCallback($event)
+    {
+        if (isset($this->callbacks[$event])) {
+            return true;
+        }
+        return false;
+    }
+
+    public function getCallback($event)
+    {
+        if (isset($this->callbacks[$event])) {
+            return $this->callbacks[$event];
+        }
+        throw new \RuntimeException(sprintf(
+            'No callback exists for event: %s. Check for callback existence using hasCallback()', $event
+        ));
+    }
+
+    public function trigger($event, Pool $pool)
+    {
+        if (!in_array($event, array(self::EVENT_COMPLETE))) {
+            throw new \InvalidArgumentException(sprintf(
+                'Invalid event name triggered on Request: %s', $event
+            ));
+        }
+        if (isset($this->callbacks[$event])) {
+            $callback = $this->callbacks[$event];
+            $callback($this->getResponse(), $pool); // fix later for class|method arrays
+        }
+    }
+
     public function isGet()
     {
         return $this->getMethod() === self::GET;
@@ -346,6 +408,22 @@ class Request
         $this->setUriPort($port);
         $this->setUriPath($path);
         $this->setSocketUri($socket);
+    }
+
+    protected function isCallable($callback)
+    {
+        if (is_array($callback) && !is_object($callback[0])) {
+            if (!class_exists($callback[0], true)
+            || !method_exists($callback[0], $callback[1])) {
+                return false; // class or method don't exist
+            }
+            $method = new ReflectionMethod($callback[0], $callback[1]);
+            if (!$method->isStatic()) {
+                return false; // method on non-instanced class must be static
+            }
+            return true; // we can call statically
+        }
+        return is_callable($callback); // catches everything else
     }
 
     protected function processOptions(array $options)

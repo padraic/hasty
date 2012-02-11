@@ -128,7 +128,7 @@ class Pool
             }
         }
         restore_error_handler();
-        return $this->responses; // later, we'll add callbacks...
+        return $this->responses;
     }
 
     public function reset()
@@ -173,10 +173,11 @@ class Pool
     {
         $id = array_search($read, $this->streams);
         $response = $this->responses[$id];
+        $request = $this->requests[$id];
         $chunk = fread($read, $response->getChunkSize());
         $response->appendChunk($chunk);
         if (count($response->headers) > 0 && $response->isRedirect()) {
-            $response->setRequestStatus(self::STATUS_COMPLETED);
+            $response->setRequestStatus(self::STATUS_COMPLETED); // redirect status?
             fclose($read);
             unset($this->streams[$id]);
             return;
@@ -196,6 +197,8 @@ class Pool
             }
             fclose($read);
             unset($this->streams[$id]);
+            $request->setResponse($response);
+            $request->trigger(Request::EVENT_COMPLETE, $this);
         } else {
             $response->setRequestStatus(self::STATUS_READING);
         }
